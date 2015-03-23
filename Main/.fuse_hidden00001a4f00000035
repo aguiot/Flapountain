@@ -1,0 +1,218 @@
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
+#include <GL/glew.h>
+#include <iostream>
+#include <cstdlib>
+#include <cmath>
+
+#include <common.hpp>
+#include "VBO.hpp"
+#include "VAO.hpp"
+#include "Program.hpp"
+#include "FreeflyCamera.hpp"
+#include "Plane.hpp"
+
+#include "Spray.hpp"
+#include "Fountain.hpp"
+
+#include "Texture.hpp"
+
+static const Uint32 FPS = 30;
+static const Uint32 FRAME_DURATION = 1000.f / FPS;
+
+static Uint32 WINDOW_WIDTH = 800;
+static Uint32 WINDOW_HEIGHT = 600;
+static const Uint32 WINDOW_BPP = 32;
+
+using namespace glimac;
+
+int main() {
+    if(-1 == SDL_Init(SDL_INIT_VIDEO)) {
+        std::cerr << "Unable to initialize SDL" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    int flags=IMG_INIT_JPG|IMG_INIT_PNG;
+    int initted=IMG_Init(flags);
+    if(initted&flags != flags) {
+        std::cerr << "Unable to initialize SDL_image" << std::endl;
+    }
+    SDL_DisplayMode dm;
+    SDL_GetDesktopDisplayMode(0, &dm);
+    WINDOW_WIDTH = dm.w;
+    WINDOW_HEIGHT = dm.h;
+
+    SDL_Window *screen = SDL_CreateWindow("Cube Builder", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_OPENGL);
+    SDL_SetWindowFullscreen(screen, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    
+    SDL_GLContext GLContext = SDL_GL_CreateContext(screen);
+    if(NULL == screen) {
+        std::cerr << "Unable to open the window and get an OpenGL context" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    SDL_WarpMouseInWindow(screen, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+    SDL_ShowCursor(SDL_DISABLE);
+
+    GLenum glewCode = glewInit();
+    if(GLEW_OK != glewCode) {
+        std::cerr << "Unable to initialize GLEW : " << glewGetErrorString(glewCode) << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    FreeflyCamera camera;
+
+    VAO vao;
+    VBO vbo;
+
+    Uniforms uniforms;
+
+    Program planeProgram = loadProgram("../shaders/plane.vs.glsl","../shaders/plane.fs.glsl");    
+    uniforms.uPlaneMVMatrix = glGetUniformLocation(planeProgram.getGLId(), "uMVMatrix");
+    uniforms.uPlaneMVPMatrix = glGetUniformLocation(planeProgram.getGLId(), "uMVPMatrix");
+    uniforms.uPlaneNormalMatrix = glGetUniformLocation(planeProgram.getGLId(), "uNormalMatrix");
+    uniforms.uPlaneTexture = glGetUniformLocation(planeProgram.getGLId(), "uTexture");
+    uniforms.uPlaneRadius = glGetUniformLocation(planeProgram.getGLId(), "uRadius");
+
+    Program dropProgram = loadProgram("../shaders/drop.vs.glsl", "../shaders/drop.fs.glsl");    
+    uniforms.uDropMVMatrix = glGetUniformLocation(dropProgram.getGLId(), "uMVMatrix");
+    uniforms.uDropMVPMatrix = glGetUniformLocation(dropProgram.getGLId(), "uMVPMatrix");
+    uniforms.uDropNormalMatrix = glGetUniformLocation(dropProgram.getGLId(), "uNormalMatrix");
+
+    Program fountainProgram = loadProgram("../shaders/fountain.vs.glsl", "../shaders/fountain.fs.glsl");    
+    uniforms.uFountainMVMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uMVMatrix");
+    uniforms.uFountainMVPMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uMVPMatrix");
+    uniforms.uFountainNormalMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uNormalMatrix");
+    uniforms.uFountainTexture = glGetUniformLocation(fountainProgram.getGLId(), "uTexture");
+    uniforms.uFountainLightDirection = glGetUniformLocation(fountainProgram.getGLId(),"uLightDirection");
+    uniforms.uFountainLightColor = glGetUniformLocation(fountainProgram.getGLId(),"uLightColor");
+    uniforms.uFountainLightIntensity = glGetUniformLocation(fountainProgram.getGLId(),"uLightIntensity");
+    uniforms.uFountainSpecularPower = glGetUniformLocation(fountainProgram.getGLId(),"uSpecularPower");
+    uniforms.uFountainCameraPosition = glGetUniformLocation(fountainProgram.getGLId(),"uCameraPosition");
+
+    glEnable(GL_DEPTH_TEST);        
+    glEnable(GL_TEXTURE_2D);
+
+    glm::mat4 ProjMatrix = glm::perspective(70.f, float(WINDOW_WIDTH) / WINDOW_HEIGHT, 0.1f, 100.f);
+    glm::mat4 MVMatrix = glm::mat4(1);
+
+    int mouseLastX, mouseLastY;
+    SDL_GetMouseState(&mouseLastX, &mouseLastY);
+
+    Uint32 tStart = SDL_GetTicks();
+    Uint32 dt = tStart;
+    bool done = false;
+
+    Force3D test;
+    test.force = glm::vec3(0.f,100.f,0.f);
+    test.position = glm::vec3(0.f);
+    bool applied = false;
+
+    Force3D gravity;
+    gravity.force = glm::vec3(0,-0.1f,0);
+
+    Light light;
+    light.color = glm::vec3(1.f);
+    light.direction = glm::vec3(-1.f, -1.f, -1.f);
+    light.intensity = 1.5f;
+    light.specularPower = 30.f;
+
+    float radius = 5.f;
+    glm::vec3 planePos = glm::vec3(0.f,0.5f,0.f);
+    Fountain fountain(radius);
+    Spray spray;
+    Plane plane(radius,planePos);
+    Texture waterTexture("water.jpg");
+    Texture rockTexture("rock.jpg");
+
+    while(!done) {
+
+        light.cameraPosition = camera.getPosition();
+
+        // Rendering code goes here
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        vao.bind();
+            planeProgram.use();
+            plane.applyInternalForces(dt*0.001f);
+            if (!applied) {
+                plane.applyExternalForce(test);
+                applied = true;
+            }
+            // plane.applyGravity(gravity);
+            // plane.update(dt*0.001f);
+            // plane.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, waterTexture, uPlaneMVMatrix, uPlaneNormalMatrix, uPlaneMVPMatrix, uPlaneRadius, uPlaneTexture);
+            // dropProgram.use();
+            // spray.addDrop();
+            // spray.applyGravity(gravity);
+            // spray.update(dt*0.001f);
+            // spray.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, uPlaneMVMatrix, uPlaneNormalMatrix, uPlaneMVPMatrix);
+            fountainProgram.use();
+            fountain.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, rockTexture, uniforms, light);
+            // spray.display();
+        vao.unbind();
+
+        // Application code goes here
+
+        SDL_Event e;
+        while(SDL_PollEvent(&e)) {
+            switch(e.type) {
+                default:
+                    break;
+
+                case SDL_QUIT:
+                    done = true;
+                    break;
+            }
+        }
+
+        int mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
+        int dX = mouseX - mouseLastX, dY = mouseY - mouseLastY;
+        camera.rotateLeft(-dX);
+        camera.rotateUp(-dY);
+        mouseLastX = mouseX;
+        mouseLastY = mouseY;      
+
+        if (mouseX == WINDOW_WIDTH-1) {
+            SDL_WarpMouseInWindow(screen, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            SDL_GetMouseState(&mouseLastX, &mouseLastY);
+            SDL_GetMouseState(&mouseX, &mouseY);
+        }
+
+        bool walking = false;
+        const Uint8 * keys = SDL_GetKeyboardState(NULL);
+        float speed = 0.1f;
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_z)]) {
+            camera.moveFront(speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_s)]) {
+            camera.moveFront(-speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_q)]) {
+            camera.moveLeft(speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_d)]) {
+            camera.moveLeft(-speed);
+        }
+
+        tStart = SDL_GetTicks();
+
+        SDL_GL_SwapWindow(screen);
+
+        Uint32 tEnd = SDL_GetTicks();
+        Uint32 dt = tEnd - tStart;
+        if(dt < FRAME_DURATION) {
+            SDL_Delay(FRAME_DURATION - dt);
+        }
+    }
+    
+    IMG_Quit();
+    SDL_Quit();
+
+    return EXIT_SUCCESS;
+}

@@ -1,0 +1,428 @@
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
+#include <GL/glew.h>
+#include <iostream>
+#include <cstdlib>
+#include <cmath>
+
+#include <common.hpp>
+#include "VBO.hpp"
+#include "VAO.hpp"
+#include "Program.hpp"
+#include "FreeflyCamera.hpp"
+#include "Plane.hpp"
+
+#include "Spray.hpp"
+#include "Fountain.hpp"
+#include "Ground.hpp"
+#include "Skybox.hpp"
+#include "Pipe.hpp"
+#include "Flappy.hpp"
+
+#include "Texture.hpp"
+
+static const Uint32 FPS = 30;
+static const Uint32 FRAME_DURATION = 1000.f / FPS;
+
+static Uint32 WINDOW_WIDTH = 800;
+static Uint32 WINDOW_HEIGHT = 600;
+static const Uint32 WINDOW_BPP = 32;
+
+using namespace glimac;
+
+int main() {
+    if(-1 == SDL_Init(SDL_INIT_VIDEO)) {
+        std::cerr << "Unable to initialize SDL" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    int flags=IMG_INIT_JPG|IMG_INIT_PNG;
+    int initted=IMG_Init(flags);
+    if(initted&flags != flags) {
+        std::cerr << "Unable to initialize SDL_image" << std::endl;
+    }
+    // SDL_DisplayMode dm;
+    // SDL_GetDesktopDisplayMode(0, &dm);
+    // WINDOW_WIDTH = dm.w;
+    // WINDOW_HEIGHT = dm.h;
+
+    SDL_Window *screen = SDL_CreateWindow("Cube Builder", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_OPENGL);
+    // SDL_SetWindowFullscreen(screen, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    
+    SDL_GLContext GLContext = SDL_GL_CreateContext(screen);
+    if(NULL == screen) {
+        std::cerr << "Unable to open the window and get an OpenGL context" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    SDL_WarpMouseInWindow(screen, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+    SDL_ShowCursor(SDL_DISABLE);
+
+    GLenum glewCode = glewInit();
+    if(GLEW_OK != glewCode) {
+        std::cerr << "Unable to initialize GLEW : " << glewGetErrorString(glewCode) << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    srand (time(NULL));
+
+    FreeflyCamera camera(glm::vec3(0.f,1.f,0.f));
+
+    VAO vao;
+    VBO vbo;
+
+    Uniforms uniforms;
+
+    Program planeProgram = loadProgram("../shaders/plane.vs.glsl","../shaders/plane.fs.glsl");    
+    uniforms.uPlaneMVMatrix = glGetUniformLocation(planeProgram.getGLId(), "uMVMatrix");
+    uniforms.uPlaneMVPMatrix = glGetUniformLocation(planeProgram.getGLId(), "uMVPMatrix");
+    uniforms.uPlaneNormalMatrix = glGetUniformLocation(planeProgram.getGLId(), "uNormalMatrix");
+    uniforms.uPlaneTexture = glGetUniformLocation(planeProgram.getGLId(), "uTexture");
+    uniforms.uPlaneRadius = glGetUniformLocation(planeProgram.getGLId(), "uRadius");
+    uniforms.uPlaneLightDirection = glGetUniformLocation(planeProgram.getGLId(),"uLightDirection");
+    uniforms.uPlaneLightColor = glGetUniformLocation(planeProgram.getGLId(),"uLightColor");
+    uniforms.uPlaneLightIntensity = glGetUniformLocation(planeProgram.getGLId(),"uLightIntensity");
+    uniforms.uPlaneSpecularPower = glGetUniformLocation(planeProgram.getGLId(),"uSpecularPower");
+    uniforms.uPlaneCameraPosition = glGetUniformLocation(planeProgram.getGLId(),"uCameraPosition");
+
+    Program dropProgram = loadProgram("../shaders/drop.vs.glsl", "../shaders/drop.fs.glsl");    
+    uniforms.uDropMVMatrix = glGetUniformLocation(dropProgram.getGLId(), "uMVMatrix");
+    uniforms.uDropMVPMatrix = glGetUniformLocation(dropProgram.getGLId(), "uMVPMatrix");
+    uniforms.uDropNormalMatrix = glGetUniformLocation(dropProgram.getGLId(), "uNormalMatrix");
+
+    Program fountainProgram = loadProgram("../shaders/fountain.vs.glsl", "../shaders/fountain.fs.glsl");    
+    uniforms.uFountainMVMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uMVMatrix");
+    uniforms.uFountainMVPMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uMVPMatrix");
+    uniforms.uFountainNormalMatrix = glGetUniformLocation(fountainProgram.getGLId(), "uNormalMatrix");
+    uniforms.uFountainTexture = glGetUniformLocation(fountainProgram.getGLId(), "uTexture");
+    uniforms.uFountainLightDirection = glGetUniformLocation(fountainProgram.getGLId(),"uLightDirection");
+    uniforms.uFountainLightColor = glGetUniformLocation(fountainProgram.getGLId(),"uLightColor");
+    uniforms.uFountainLightIntensity = glGetUniformLocation(fountainProgram.getGLId(),"uLightIntensity");
+    uniforms.uFountainSpecularPower = glGetUniformLocation(fountainProgram.getGLId(),"uSpecularPower");
+    uniforms.uFountainCameraPosition = glGetUniformLocation(fountainProgram.getGLId(),"uCameraPosition");
+
+    Program groundProgram = loadProgram("../shaders/ground.vs.glsl", "../shaders/ground.fs.glsl");    
+    uniforms.uGroundMVMatrix = glGetUniformLocation(groundProgram.getGLId(), "uMVMatrix");
+    uniforms.uGroundMVPMatrix = glGetUniformLocation(groundProgram.getGLId(), "uMVPMatrix");
+    uniforms.uGroundNormalMatrix = glGetUniformLocation(groundProgram.getGLId(), "uNormalMatrix");
+    uniforms.uGroundTexture = glGetUniformLocation(groundProgram.getGLId(), "uTexture");
+    uniforms.uGroundLightDirection = glGetUniformLocation(groundProgram.getGLId(),"uLightDirection");
+    uniforms.uGroundLightColor = glGetUniformLocation(groundProgram.getGLId(),"uLightColor");
+    uniforms.uGroundLightIntensity = glGetUniformLocation(groundProgram.getGLId(),"uLightIntensity");
+    uniforms.uGroundSpecularPower = glGetUniformLocation(groundProgram.getGLId(),"uSpecularPower");
+    uniforms.uGroundCameraPosition = glGetUniformLocation(groundProgram.getGLId(),"uCameraPosition");
+
+    Program skyboxProgram = loadProgram("../shaders/skybox.vs.glsl", "../shaders/skybox.fs.glsl");    
+    uniforms.uSkyboxMVMatrix = glGetUniformLocation(skyboxProgram.getGLId(), "uMVMatrix");
+    uniforms.uSkyboxMVPMatrix = glGetUniformLocation(skyboxProgram.getGLId(), "uMVPMatrix");
+    uniforms.uSkyboxNormalMatrix = glGetUniformLocation(skyboxProgram.getGLId(), "uNormalMatrix");
+    uniforms.uSkyboxTexture = glGetUniformLocation(skyboxProgram.getGLId(), "uTexture");
+
+    Program pipeProgram = loadProgram("../shaders/pipe.vs.glsl", "../shaders/pipe.fs.glsl");    
+    uniforms.uPipeMVMatrix = glGetUniformLocation(pipeProgram.getGLId(), "uMVMatrix");
+    uniforms.uPipeMVPMatrix = glGetUniformLocation(pipeProgram.getGLId(), "uMVPMatrix");
+    uniforms.uPipeNormalMatrix = glGetUniformLocation(pipeProgram.getGLId(), "uNormalMatrix");
+    uniforms.uPipeTexture = glGetUniformLocation(pipeProgram.getGLId(), "uTexture");
+    uniforms.uPipeLightDirection = glGetUniformLocation(pipeProgram.getGLId(),"uLightDirection");
+    uniforms.uPipeLightColor = glGetUniformLocation(pipeProgram.getGLId(),"uLightColor");
+    uniforms.uPipeLightIntensity = glGetUniformLocation(pipeProgram.getGLId(),"uLightIntensity");
+    uniforms.uPipeSpecularPower = glGetUniformLocation(pipeProgram.getGLId(),"uSpecularPower");
+    uniforms.uPipeCameraPosition = glGetUniformLocation(pipeProgram.getGLId(),"uCameraPosition");
+
+    Program flappyProgram = loadProgram("../shaders/flappy.vs.glsl", "../shaders/flappy.fs.glsl");    
+    uniforms.uFlappyMVMatrix = glGetUniformLocation(flappyProgram.getGLId(), "uMVMatrix");
+    uniforms.uFlappyMVPMatrix = glGetUniformLocation(flappyProgram.getGLId(), "uMVPMatrix");
+    uniforms.uFlappyNormalMatrix = glGetUniformLocation(flappyProgram.getGLId(), "uNormalMatrix");
+    uniforms.uFlappyTexture = glGetUniformLocation(flappyProgram.getGLId(), "uTexture");
+    uniforms.uFlappyLightDirection = glGetUniformLocation(flappyProgram.getGLId(),"uLightDirection");
+    uniforms.uFlappyLightColor = glGetUniformLocation(flappyProgram.getGLId(),"uLightColor");
+    uniforms.uFlappyLightIntensity = glGetUniformLocation(flappyProgram.getGLId(),"uLightIntensity");
+    uniforms.uFlappySpecularPower = glGetUniformLocation(flappyProgram.getGLId(),"uSpecularPower");
+    uniforms.uFlappyCameraPosition = glGetUniformLocation(flappyProgram.getGLId(),"uCameraPosition");
+    uniforms.uFlappyPosition = glGetUniformLocation(flappyProgram.getGLId(),"uFlappy");
+
+    glEnable(GL_DEPTH_TEST);        
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glm::mat4 ProjMatrix = glm::perspective(70.f, float(WINDOW_WIDTH) / WINDOW_HEIGHT, 0.1f, 100.f);
+    glm::mat4 MVMatrix = glm::mat4(1);
+
+    int mouseLastX, mouseLastY;
+    SDL_GetMouseState(&mouseLastX, &mouseLastY);
+
+    Uint32 tStart = SDL_GetTicks();
+    Uint32 dt = tStart;
+    bool done = false;
+
+    Texture waterTexture("water.jpg");
+    Texture rockTexture("rock.jpg");
+    Texture grassTexture("grass.jpg"); 
+    Texture skyTexture("sky.jpg");
+    Texture flappyTexture("flappy.jpg");
+
+
+    Force3D gravity;
+    gravity.force = glm::vec3(0,-0.1f,0);
+
+    float radius = 5.f;
+    glm::vec3 planePos = glm::vec3(0.f,0.5f,0.f);
+
+    Light light;
+    light.color = glm::vec3(1.f);
+    light.direction = glm::vec3(-radius, -radius, -radius);
+    light.intensity = 1.5f;
+    light.specularPower = 500.f;
+    light.cameraPosition = camera.getPosition();
+
+    Fountain fountain(radius);
+    Spray spray;
+    Plane plane(radius,planePos);
+    Ground ground(10.f * radius);
+    Sphere shape(10.f * radius, 32, 16);
+    Skybox skybox(shape);
+
+
+    int nbPipes = 10;
+    float step = 2 * glm::pi<float>()/nbPipes;
+    std::vector<Pipe> pipes;
+    for(int index=0; index < nbPipes; ++index) {
+        float c = cos(index*step);
+        float s = sin(index*step);
+        float cn = cos((index+1)*step);
+        float sn = sin((index+1)*step);
+        pipes.push_back(Pipe(radius, glm::vec3(2*radius*c,0.f,2*radius*s)));
+    }
+    Flappy flappy;
+
+    glViewport( 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    GLuint gbufferTextures[3];
+    glGenTextures(3, gbufferTextures);
+
+    glBindTexture(GL_TEXTURE_2D, gbufferTextures[0]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);    
+
+    // Create normal texture
+    glBindTexture(GL_TEXTURE_2D, gbufferTextures[1]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_RGBA, GL_FLOAT, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Create depth texture
+    glBindTexture(GL_TEXTURE_2D, gbufferTextures[2]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, WINDOW_WIDTH, WINDOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);    
+
+    GLuint depthrenderbuffer;
+    glGenRenderbuffers(1, &depthrenderbuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, WINDOW_WIDTH, WINDOW_HEIGHT);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+
+    GLuint gbufferDrawBuffers[2];
+    gbufferDrawBuffers[0] = GL_COLOR_ATTACHMENT0;
+    gbufferDrawBuffers[1] = GL_COLOR_ATTACHMENT1;
+    glDrawBuffers(2, gbufferDrawBuffers);
+
+    GLuint FramebufferName = 0;
+    glGenFramebuffers(1, &FramebufferName);
+    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 , GL_TEXTURE_2D, gbufferTextures[0], 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1 , GL_TEXTURE_2D, gbufferTextures[1], 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, gbufferTextures[2], 0);
+
+
+    // Always check that our framebuffer is ok
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        return false;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // The fullscreen quad's FBO
+    GLuint quad_vao;
+    // glGenVertexArrays(1, &quad_vao);
+
+    GLuint quad_vbo;
+    glGenBuffers(1, &quad_vbo);
+     
+    static const GLfloat g_quad_vertex_buffer_data[] = {
+        -1.0f, -1.0f, 0.0f,
+        1.0f, -1.0f, 0.0f,
+        -1.0f,  1.0f, 0.0f,
+        -1.0f,  1.0f, 0.0f,
+        1.0f, -1.0f, 0.0f,
+        1.0f,  1.0f, 0.0f,
+    };
+     
+    glBindVertexArray(quad_vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(g_quad_vertex_buffer_data), g_quad_vertex_buffer_data, GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+
+    // Create and compile our GLSL program from the shaders
+    Program quad_program = loadProgram( "../shaders/blit.vs.glsl", "../shaders/blit.fs.glsl" );
+    GLuint texID = glGetUniformLocation(quad_program.getGLId(), "renderedTexture");
+
+    while(!done) {
+
+        light.cameraPosition = camera.getPosition();
+
+        plane.applyInternalForces(dt);
+        plane.update(dt*0.01f);
+
+        flappy.applyGravity(gravity);
+        flappy.update(dt*0.01f, pipes);
+
+        spray.addDrop(planePos);
+        spray.applyGravity(gravity);
+        spray.update(dt*0.005f, plane);
+
+        // Render to our framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+        glClearColor(0.0, 0.0, 0.0, 0.0);
+        glClearDepth(1.0f);
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_DEPTH_TEST);
+
+
+        vao.bind();            
+            fountainProgram.use();
+            fountain.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, rockTexture, uniforms, light);
+            
+            groundProgram.use();
+            ground.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, grassTexture, uniforms, light);
+            
+            planeProgram.use();
+            plane.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, waterTexture, uniforms, light);
+            
+            skyboxProgram.use();
+            skybox.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, skyTexture, tStart, uniforms, light);
+
+            pipeProgram.use();
+            for(auto &pipe : pipes){
+                pipe.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, rockTexture, uniforms, light);
+            }
+
+            flappyProgram.use();
+            flappy.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, flappyTexture, uniforms, light);
+
+            dropProgram.use();
+            spray.display(vao, vbo, ProjMatrix, camera.getViewMatrix()*MVMatrix, uniforms);
+
+        vao.unbind();
+
+        // Render to the screen
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0,0,WINDOW_WIDTH,WINDOW_HEIGHT); // Render on the whole framebuffer, complete from the lower left corner to the upper right
+
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+
+        // Clear the screen
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Use our shader
+        quad_program.use();
+
+        glViewport(0,0,WINDOW_WIDTH,WINDOW_HEIGHT);
+
+        glBindVertexArray(quad_vao);
+
+        glProgramUniform1i(quad_program.getGLId(), texID, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D,gbufferTextures[0]);
+
+        // 1rst attribute buffer : vertices
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+        // Draw the triangles !
+        glDrawArrays(GL_TRIANGLES, 0, 6); // 2*3 indices starting at 0 -> 2 triangles
+
+        glBindVertexArray(0);
+
+        // Application code goes here
+
+        SDL_Event e;
+        while(SDL_PollEvent(&e)) {
+            switch(e.type) {
+                default:
+                    break;
+
+                case SDL_QUIT:
+                    done = true;
+                    break;
+            }
+        }
+
+        int mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
+        int dX = mouseX - mouseLastX, dY = mouseY - mouseLastY;
+        camera.rotateLeft(-dX);
+        camera.rotateUp(-dY);
+        mouseLastX = mouseX;
+        mouseLastY = mouseY;      
+
+        if (mouseX == WINDOW_WIDTH-1) {
+            SDL_WarpMouseInWindow(screen, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            SDL_GetMouseState(&mouseLastX, &mouseLastY);
+            SDL_GetMouseState(&mouseX, &mouseY);
+        }
+
+        bool walking = false;
+        const Uint8 * keys = SDL_GetKeyboardState(NULL);
+        float speed = 0.2f;
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_z)]) {
+            camera.moveFront(speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_s)]) {
+            camera.moveFront(-speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_q)]) {
+            camera.moveLeft(speed);
+        }
+
+        if(keys[SDL_GetScancodeFromKey(SDLK_d)]) {
+            camera.moveLeft(-speed);
+        }
+
+        tStart = SDL_GetTicks();
+
+        SDL_GL_SwapWindow(screen);
+
+        Uint32 tEnd = SDL_GetTicks();
+        Uint32 dt = tEnd - tStart;
+        if(dt < FRAME_DURATION) {
+            SDL_Delay(FRAME_DURATION - dt);
+        }
+    }
+    
+    IMG_Quit();
+    SDL_Quit();
+
+    return EXIT_SUCCESS;
+}

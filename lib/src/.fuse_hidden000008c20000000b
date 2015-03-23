@@ -1,0 +1,104 @@
+#include <cmath>
+#include <vector>
+#include <iostream>
+#include "common.hpp"
+#include "Flappy.hpp"
+
+namespace glimac {
+
+    void Flappy::build() {
+        velocity = glm::vec3(0.f);
+        mass = 1.f;
+        force = glm::vec3(0.f);
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,-0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,-0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,-0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,-0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,-0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,-0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(-0.5f,0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,-0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,-0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,0.5f,-0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+        m_vertices.push_back(ShapeVertex(glm::vec3(0.5f,0.5f,0.5f), glm::vec2(0.f), glm::vec3(1.f)));
+
+
+        m_nVertexCount = m_vertices.size();
+    }
+
+    void Flappy::load(VAO &vao, VBO &vbo) {
+        vbo.bind();
+            glBufferData(GL_ARRAY_BUFFER, getVertexCount() * sizeof(ShapeVertex), getDataPointer(), GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        vao.bind();
+            glEnableVertexAttribArray(0);
+            glEnableVertexAttribArray(1);
+            glEnableVertexAttribArray(2);
+            vbo.bind();
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ShapeVertex), (const GLvoid*) offsetof(ShapeVertex, position));
+                glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(ShapeVertex), (const GLvoid*) offsetof(ShapeVertex, normal));
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(ShapeVertex), (const GLvoid*) offsetof(ShapeVertex, texCoords));
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    }
+
+    void Flappy::display(VAO &vao, VBO &vbo, glm::mat4 ProjMatrix, glm::mat4 MVMatrix, Texture texture, Uniforms &uniforms, Light light) {
+        load(vao, vbo);
+
+        glm::mat4 NormalMatrix = glm::transpose(glm::inverse(MVMatrix));
+
+        glUniform3fv(uniforms.uFlappyPosition, 1, glm::value_ptr(position));
+
+        glUniform3fv(uniforms.uFlappyLightDirection, 1, glm::value_ptr(light.direction));
+        glUniform3fv(uniforms.uFlappyLightColor, 1, glm::value_ptr(light.color));
+        glUniform3fv(uniforms.uFlappyCameraPosition, 1, glm::value_ptr(light.cameraPosition));
+        glUniform1f(uniforms.uFlappyLightIntensity, light.intensity);
+        glUniform1f(uniforms.uFlappySpecularPower, light.specularPower);
+
+        glUniformMatrix4fv(uniforms.uFlappyMVMatrix, 1, GL_FALSE, glm::value_ptr(MVMatrix));
+        glUniformMatrix4fv(uniforms.uFlappyNormalMatrix, 1, GL_FALSE, glm::value_ptr(NormalMatrix));
+        glUniformMatrix4fv(uniforms.uFlappyMVPMatrix, 1, GL_FALSE, glm::value_ptr(ProjMatrix * MVMatrix));
+      
+        glBindTexture(GL_TEXTURE_2D, texture.texture);
+        glDrawArrays(GL_TRIANGLES, 0, getVertexCount());
+        glUniform1i(uniforms.uFlappyTexture,0);
+
+    }
+
+    void Flappy::launch(std::vector<Pipe> &pipes) {
+        glm::vec3 dir = glm::normalize(glm::vec3(pipes[destinationIndex].getPosition()[0] - position[0],0.f,pipes[destinationIndex].getPosition()[2] - position[2]));
+        float d = glm::length(pipes[destinationIndex].getPosition() - position);
+        std::cout << glm::dot(dir,glm::vec3(1.f,0.f,0.f)) << std::endl;
+        float vel = std::sqrt(0.05f*d);
+        velocity = glm::vec3(dir[0]*vel, vel, dir[2]*vel);
+    }
+
+    void Flappy::update(float dt, std::vector<Pipe> &pipes) {
+        if (position[1] < pipes[0].getPosition()[1]) {
+            position = pipes[rand()%pipes.size()].getPosition();
+            destinationIndex = rand()%pipes.size();
+            launch(pipes);
+        }
+        velocity = velocity + dt * force/mass;
+        position += dt * velocity;
+        force = glm::vec3(0.f);
+    }
+
+    void Flappy::applyGravity(Force3D f) {
+        force += f.force;
+    }
+}
